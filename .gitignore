@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.autocraw-cache
+*.log
+.env
+
+# Personal, unreviewed scripts (not part of the project)
+/resolver/*
+!/resolver/README.md
+!/resolver/.gitkeep
+.cache

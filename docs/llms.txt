@@ -1,0 +1,32 @@
+# autocraw
+
+> autocraw (@zhadev/autocraw, CLI: zac) is a Node.js 22+ site intelligence crawler. It scrapes pages to LLM-ready Markdown, maps and crawls sites, batch scrapes, extracts structured JSON with an AI model, runs browser actions and screenshots, and analyzes how a site is built (tech stack, SSR/RSC/CSR, hydration traps, URL patterns, pagination, search, filters, media sources, WordPress AnimeStream and Madara templates). It ships a CLI, a TypeScript library and a local REST API. License: GPL-3.0-only.
+
+## Core docs
+
+- [Getting started](en/getting-started.md): install, browser setup, first commands
+- [CLI reference](en/cli.md): every command, option and exit code
+- [Library reference](en/library.md): Autocraw class, options, events, exports
+- [Server API](en/server-api.md): REST endpoints, auth and SSRF protection
+
+## Guides
+
+- [Scraping](en/guides/scraping.md): formats, batches, actions, screenshots
+- [Discovery](en/guides/discovery.md): site analysis and reports
+- [Extraction](en/guides/extract.md): structured JSON with schema validation
+- [Markdown reports](en/guides/markdown-reports.md): default and AI modes
+- [Templates](en/guides/templates.md): AnimeStream, Madara, custom templates
+- [Browser and anti-bot](en/guides/browser-and-anti-bot.md)
+- [Responsible use](en/guides/responsible-use.md)
+
+## Reference
+
+- [Configuration](en/reference/config.md)
+- [Report schema](en/reference/report-schema.md)
+- [Errors](en/reference/errors.md)
+
+## Optional
+
+- [Troubleshooting](en/troubleshooting.md)
+- [Limitations](en/limitations.md)
+- [Development](en/development.md)

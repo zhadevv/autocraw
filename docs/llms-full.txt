@@ -1,0 +1,1764 @@
+Source: docs/en/index.md
+
+# autocraw documentation
+
+autocraw (`@zhadev/autocraw`) is a site intelligence crawler for Node.js 22+. It turns web pages into clean Markdown, maps and crawls sites, and explains how a site is built: tech stack, rendering strategy, hydration traps, URL patterns, pagination, search, filters, media sources and more. It ships as a CLI, a TypeScript library and a local REST API.
+
+## Start here
+
+| I want to | Read |
+| --- | --- |
+| Install and run it | [Getting started](getting-started.md) |
+| Look up a command | [CLI reference](cli.md) |
+| Use it from code | [Library reference](library.md) |
+| Run the REST API | [Server API](server-api.md) |
+
+## Guides
+
+- [Scraping pages, batches, actions and screenshots](guides/scraping.md)
+- [Site discovery and reports](guides/discovery.md)
+- [Structured extraction with AI](guides/extract.md)
+- [Markdown reports: default and AI](guides/markdown-reports.md)
+- [Site templates: AnimeStream, Madara and your own](guides/templates.md)
+- [Browser mode and anti-bot behavior](guides/browser-and-anti-bot.md)
+- [Network intercept](guides/intercept.md)
+- [Responsible use](guides/responsible-use.md)
+
+## Reference
+
+- [Configuration and environment variables](reference/config.md)
+- [Report schema](reference/report-schema.md)
+- [Errors and exit codes](reference/errors.md)
+
+## More
+
+- [Troubleshooting](troubleshooting.md)
+- [Limitations](limitations.md)
+- [Development](development.md)
+
+Documentation is available in English and, for the essential pages, Indonesian (`docs/id`).
+
+---
+
+Source: docs/en/getting-started.md
+
+# Getting started
+
+## Requirements
+
+- Node.js 22 or newer
+- A Chrome or Chromium browser, only for pages that need JavaScript, actions or screenshots
+
+## Install
+
+```sh
+npm install @zhadev/autocraw
+```
+
+Install globally to get the `zac` command (`autocraw` is an alias):
+
+```sh
+npm install -g @zhadev/autocraw
+zac doctor
+```
+
+Without installing:
+
+```sh
+npx @zhadev/autocraw doctor
+```
+
+From a source checkout:
+
+```sh
+npm install && npm run build
+node dist/cli.js doctor
+```
+
+## Browser setup
+
+autocraw only starts a browser when it has to: anti-bot challenges, empty client-side rendered shells, actions and screenshots. Pick one option.
+
+Option 1, download Playwright's Chromium:
+
+```sh
+npx playwright install chromium
+```
+
+Option 2, use a browser you already have. Set an absolute path to the binary:
+
+```sh
+AUTOCRAW_BROWSER_PATH=/usr/bin/google-chrome-stable
+```
+
+`~` is expanded, and a folder that contains a `chrome` binary is accepted. You can also pass `--browser-path`, or set `browserPath` in a config file. See [configuration](reference/config.md).
+
+Run the environment check:
+
+```sh
+zac doctor
+```
+
+## Environment file
+
+The CLI reads a `.env` file from the current directory. Copy `.env.example` and fill in what you need:
+
+```
+AUTOCRAW_BROWSER_PATH=
+AUTOCRAW_PROXY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+```
+
+## First commands
+
+Scrape one page to Markdown:
+
+```sh
+zac scrape example.com
+```
+
+List the URLs of a site:
+
+```sh
+zac map example.com --search pricing
+```
+
+Analyze how a site is built and write a report:
+
+```sh
+zac discover your-site.example -o site.md --json-out report.json
+```
+
+Turn the saved report into an AI written document:
+
+```sh
+zac markdown report.json --markdown ai --api-key YOUR_KEY -o site.ai.md
+```
+
+## First library call
+
+```ts
+import { Autocraw } from '@zhadev/autocraw';
+
+const crawler = new Autocraw({ mode: 'auto' });
+try {
+  const page = await crawler.scrape('example.com', { formats: ['markdown', 'links'] });
+  console.log(page.markdown);
+} finally {
+  await crawler.close();
+}
+```
+
+Always call `close()`. It shuts down the HTTP pool and the browser.
+
+## Next steps
+
+- [CLI reference](cli.md)
+- [Library reference](library.md)
+- [Responsible use](guides/responsible-use.md)
+
+---
+
+Source: docs/en/cli.md
+
+# CLI reference
+
+```
+zac <command> [options]
+```
+
+The command is `zac` (short for zhadev auto craw). `autocraw` works as an alias. From a source checkout, run `node dist/cli.js <command>` after `npm run build`.
+
+Progress and warnings go to stderr. Results go to stdout, or to a file with `-o, --output`, so output can be piped.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `scrape <url>` | One page to Markdown, HTML, text, links, images, metadata or a screenshot |
+| `map <url>` | List the URLs of a site from sitemaps and the start page |
+| `batch [urls...]` | Scrape many URLs in parallel, one JSON object per line |
+| `crawl <url>` | Breadth-first crawl listing each page with its kind |
+| `discover <url>` | Full site analysis and Markdown report |
+| `inspect <url>` | Tech stack, SSR/RSC payloads and hydration trap for one URL |
+| `media <url>` | Players, mirrors, HLS/MP4 sources, hosters and protection hints |
+| `probe <what> <url>` | Run one probe: pagination, search, filter, detail, watch, read |
+| `intercept [urls...]` | Record HTTP traffic while pages load, grouped by domain and path kind |
+| `captcha [url]` | List supported captchas, or test a page for them |
+| `extract <urls...>` | Structured JSON extraction with an AI model |
+| `markdown <report>` | Saved JSON report to Markdown, default or AI |
+| `export <report>` | Saved JSON report to JSON, Markdown or CSV |
+| `serve` | Local REST API |
+| `doctor` | Check the environment |
+
+## Options shared by most commands
+
+| Option | Meaning |
+| --- | --- |
+| `-m, --mode <http\|browser\|auto>` | Fetch mode. `auto` uses HTTP and escalates to the browser when needed. Default `auto` |
+| `--config <path>` | JSON config file. `autocraw.config.json` in the current directory is picked up automatically |
+| `-A, --user-agent <ua>` | Custom user agent |
+| `--rotate-ua` | Rotate between built-in browser user agents |
+| `--proxy <url>` | HTTP(S) proxy |
+| `--browser-path <path>` | Chrome or Chromium executable |
+| `--timeout <ms>` | Request timeout, 1000 to 300000 |
+| `--retries <n>` | Retries for transient failures, 0 to 10 |
+| `--concurrency <n>` | Parallel requests, default 3 |
+| `--delay <ms>` | Minimum delay between requests to a host, default 500 |
+| `--ignore-robots` | Do not honor robots.txt |
+| `-H, --header "Name: value"` | Extra request header, repeatable |
+| `--headed` | Show the browser window |
+| `--no-stealth` | Disable browser stealth patches |
+| `--load-images` | Allow images, fonts and media in the browser |
+| `--scroll` | Auto-scroll pages in the browser |
+| `--solve-captcha` | Solve a supported captcha in the browser before reading the page. See [browser and anti-bot](guides/browser-and-anti-bot.md) |
+| `--captcha-kind <kind>` | Force a captcha resolver instead of detecting. Only meaningful with `--solve-captcha` |
+| `--locale <locale>` | Browser and Accept-Language locale |
+| `-v, --verbose` | Debug logging |
+
+Crawl limits, available on `discover` and `crawl`: `--max-pages`, `--max-depth`, `--include <regex>`, `--exclude <regex>` (both repeatable) and `--no-sitemap`.
+
+AI options, available on `extract` and the markdown commands: `--ai-provider <openai|anthropic>`, `--api-key`, `--ai-model`, `--ai-base-url`, `--ai-max-input`, `--ai-max-output`, `--ai-temperature`, `--ai-timeout`, `--no-cache`.
+
+## scrape
+
+```sh
+zac scrape example.com
+zac scrape example.com -f markdown,links,metadata -o page.json
+zac scrape example.com --include-tag article --exclude-tag ".ads"
+zac scrape example.com --wait-ms 1500 --screenshot shot.png --full-page
+zac scrape example.com --actions actions.json
+```
+
+`-f, --format` takes a comma separated list or repeated flags: `markdown`, `html`, `text`, `links`, `images`, `metadata`, `screenshot`. With only `markdown`, the Markdown is printed directly; otherwise JSON is printed.
+
+`--full` keeps navigation, header, footer and sidebars. `--include-tag` keeps only matching elements; `--exclude-tag` drops matching elements. Both take CSS selectors.
+
+`--wait-ms`, `--actions` and `--screenshot` need a browser and fail in `--mode http`. See [scraping](guides/scraping.md) for the action format.
+
+## map
+
+```sh
+zac map example.com
+zac map example.com --search "pricing docs" --limit 50 --json
+zac map example.com --sitemap-mode only
+```
+
+`--sitemap-mode` is `include` (default), `only` or `skip`. `--subdomains` includes subdomains. With `--search`, only matching URLs are returned, best matches first.
+
+## batch
+
+```sh
+zac batch https://a.example https://b.example -f markdown
+zac batch --file urls.txt --batch-concurrency 6 -o results.ndjson
+```
+
+`urls.txt` has one URL per line. Blank lines and lines starting with a hash sign are ignored. Failures do not stop the batch; each failed line has an `error` field.
+
+## crawl
+
+```sh
+zac crawl your-site.example --max-pages 50 --format ndjson
+zac crawl your-site.example --per-pattern 5 --no-seo
+```
+
+`--format` is `table` (default), `json` or `ndjson`. `--per-pattern` limits pages per URL pattern, which gives a broader sample of a large site.
+
+## discover
+
+```sh
+zac discover your-site.example -o site.md --json-out report.json
+zac discover your-site.example --markdown ai --api-key YOUR_KEY --lang id
+zac discover your-site.example --template wordpress-animestream --no-crawl
+```
+
+Options: `-o, --output`, `--json-out <file>`, `--json` (print the raw report), `--no-crawl`, `--no-probes`, `--crawl-pages <n>`, `--template <id>`, `-q, --quiet`. Markdown options: `--markdown <default|ai>`, `--md-template <site-structure|seo-audit|techstack>`, `--lang <en|id>`, `--ai-fallback`, `--no-toc`, `--no-frontmatter`.
+
+## inspect
+
+```sh
+zac inspect example.com --compare
+```
+
+`--compare` always renders with a browser and compares raw and rendered HTML to detect hydration traps.
+
+## media
+
+```sh
+zac media your-site.example/episode-1/ --follow-frames
+```
+
+`--follow-frames` also fetches embedded player iframes and HLS manifests.
+
+## probe
+
+```sh
+zac probe pagination your-site.example
+```
+
+`<what>` is `pagination`, `search`, `filter`, `detail`, `watch` or `read`. The command runs discovery without the crawl and prints that section.
+
+## intercept
+
+```sh
+zac intercept example.com example.com/news
+zac intercept example.com/news --from example.com
+zac intercept example.com --json -o traffic.json
+zac intercept example.com --markdown -o traffic.md --no-interact
+```
+
+Each URL is loaded from the previous one in the list (or from `--from`), so client-side payloads that only appear on soft navigation are captured. `--clicks <n>` sets how many in-page controls are clicked, `--no-interact` skips clicks and scrolling, `--no-scroll` skips scrolling only. See [network intercept](guides/intercept.md).
+
+## captcha
+
+```sh
+zac captcha            # list supported kinds
+zac captcha example.com
+zac captcha example.com --solve
+```
+
+With no URL, the command lists the captcha kinds autocraw can solve. With a URL, it opens the page in a browser and reports which kinds are present. `--solve` also attempts to solve the first detected captcha and prints the outcome; if it fails, the exit code is 5.
+
+## extract
+
+```sh
+zac extract example.com/product --schema product.schema.json
+zac extract example.com/a example.com/b --prompt "company name and pricing" --api-key YOUR_KEY
+```
+
+See [extraction](guides/extract.md).
+
+## markdown and export
+
+```sh
+zac markdown report.json --markdown ai --lang id -o report.md
+zac export report.json -f csv-urls -o urls.csv
+```
+
+`export -f` is `json`, `markdown`, `csv-urls` or `csv-pages`.
+
+## serve
+
+```sh
+zac serve --port 3002 --key my-secret
+```
+
+See [server API](server-api.md).
+
+## doctor
+
+```sh
+zac doctor
+zac doctor --skip-network
+```
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Unexpected error, or `extract` where some pages failed validation |
+| 2 | Invalid configuration or input |
+| 3 | Blocked by anti-bot protection or robots.txt |
+| 4 | HTTP, network or timeout error |
+| 5 | Browser could not start or navigate, or a captcha could not be solved |
+| 6 | AI provider error |
+| 7 | File read, write or parse error |
+
+---
+
+Source: docs/en/library.md
+
+# Library reference
+
+```ts
+import { Autocraw } from '@zhadev/autocraw';
+```
+
+The package is ESM and CommonJS, with TypeScript declarations. Types are exported from the package root.
+
+## The Autocraw class
+
+`new Autocraw(config?, registry?, hooks?)`
+
+- `config`: partial [configuration](reference/config.md). Invalid values throw an `AutocrawError` with code `E_CONFIG`.
+- `registry`: a custom `TemplateRegistry`. Defaults to the built-in registry.
+- `hooks.urlGuard`: an async function called with every URL before it is fetched, including redirects and browser sub-requests. Throw to block. Used by the server to block private addresses.
+
+`Autocraw` extends `EventEmitter`.
+
+| Method | Returns |
+| --- | --- |
+| `scrape(url, options?)` | `Promise<ScrapeResult>` |
+| `batchScrape(urls, { scrape?, concurrency? })` | `Promise<BatchItem[]>` |
+| `map(url, options?)` | `Promise<MapResult>` |
+| `crawl(url, options?)` | `Promise<CrawlResult>` |
+| `discover(url, options?)` | `Promise<SiteReport>` |
+| `inspect(url, compare?)` | `Promise<InspectResult>` |
+| `media(url, followFrames?)` | `Promise<MediaReport>` |
+| `extract(urls, options)` | `Promise<ExtractResult[]>` |
+| `markdown(report, options?)` | `Promise<MarkdownResult>` |
+| `registerTemplate(template)` | `this` |
+| `close()` | `Promise<void>` |
+
+URLs may omit the protocol; `https` is assumed.
+
+### Events
+
+| Event | Arguments | Emitted by |
+| --- | --- | --- |
+| `page` | `PageRecord` | `crawl` |
+| `progress` | `string` step name | `discover` |
+| `item` | `BatchItem`, index, total | `batchScrape` |
+
+```ts
+crawler.on('page', (page) => console.log(page.status, page.finalUrl));
+await crawler.crawl('example.com', { maxPages: 20 });
+```
+
+## scrape
+
+```ts
+const result = await crawler.scrape('example.com', {
+  formats: ['markdown', 'links', 'metadata', 'screenshot'],
+  onlyMainContent: true,
+  includeTags: ['article'],
+  excludeTags: ['.ads'],
+  waitFor: 1000,
+  actions: [{ type: 'click', selector: 'button.load-more' }],
+  fullPage: true,
+});
+```
+
+`ScrapeOptions`:
+
+| Field | Meaning |
+| --- | --- |
+| `formats` | Any of `markdown`, `html`, `text`, `links`, `images`, `metadata`, `screenshot`. Default `['markdown']` |
+| `onlyMainContent` | Drop navigation, header, footer and sidebars. Default `true` |
+| `includeTags`, `excludeTags` | CSS selectors to keep or remove |
+| `mode` | `http`, `browser` or `auto` |
+| `waitForSelector` | Selector to wait for in browser mode |
+| `waitFor` | Milliseconds to wait after load, uses the browser |
+| `actions` | Browser actions, see [scraping](guides/scraping.md) |
+| `fullPage` | Full-page screenshot |
+
+`ScrapeResult` has `url`, `finalUrl`, `status`, `via` (`http` or `browser`) and one field per requested format. `screenshot` is a base64 PNG.
+
+## batchScrape
+
+```ts
+const items = await crawler.batchScrape(urls, { concurrency: 6, scrape: { formats: ['markdown'] } });
+for (const item of items) console.log(item.ok ? item.data?.markdown?.length : item.error?.message);
+```
+
+Failures never reject the whole batch. Each item is `{ url, ok, data? , error? }`.
+
+## map
+
+```ts
+const map = await crawler.map('example.com', { search: 'pricing', limit: 100, sitemap: 'include', includeSubdomains: false });
+```
+
+Returns `{ url, total, truncated, links: [{ url, title, source }], sitemaps, warnings }`. `source` is `sitemap` or `page`. robots.txt is honored when `respectRobots` is true.
+
+## crawl
+
+```ts
+const result = await crawler.crawl('example.com', {
+  maxPages: 50,
+  maxDepth: 2,
+  include: ['/blog/'],
+  exclude: ['/tag/'],
+  perPatternLimit: 5,
+  computeSeo: false,
+});
+```
+
+Returns `{ start, pages, skipped, errors, stats }`. With `computeSeo: false`, link and title extraction use the fast `rusteerio` HTML parser and fall back to jsdom if it is unavailable.
+
+## discover
+
+```ts
+const report = await crawler.discover('your-site.example', { crawl: true, probes: true, crawlPages: 30, template: null });
+```
+
+Returns a `SiteReport`, see the [report schema](reference/report-schema.md). Throws `E_BLOCKED` when anti-bot protection blocks the home page and `E_ROBOTS` when robots.txt disallows the whole site.
+
+## inspect and media
+
+```ts
+const info = await crawler.inspect('example.com', true);
+console.log(info.techstack.renderStrategy, info.hydration?.trapped);
+
+const media = await crawler.media('your-site.example/episode-1/', true);
+```
+
+## extract
+
+```ts
+const results = await crawler.extract('example.com/product', {
+  ai: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY! },
+  schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, price: { type: ['number', 'null'] } } },
+  prompt: 'Product name and price',
+});
+```
+
+See [extraction](guides/extract.md).
+
+## markdown
+
+```ts
+const result = await crawler.markdown(report, {
+  mode: 'ai',
+  template: 'site-structure',
+  language: 'en',
+  ai: { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY! },
+});
+console.log(result.markdown, result.cached, result.inputTokens, result.outputTokens);
+```
+
+See [Markdown reports](guides/markdown-reports.md).
+
+## Lower level exports
+
+| Export | Use |
+| --- | --- |
+| `Session`, `HttpClient`, `BrowserSession` | Fetching primitives |
+| `Crawler`, `discoverSite`, `inspectPage`, `scrapePage`, `batchScrape`, `mapSite`, `extractMany` | Functions behind the class methods |
+| `detectTechStack`, `detectSSR`, `analyzeHydration`, `analyzeRawOnly` | Detection on HTML you already have |
+| `detectMedia`, `decodeMirrorValue`, `unpackPacker` | Media detection helpers |
+| `classifyUrl`, `groupUrls`, `patternKey` | URL classification |
+| `RobotsPolicy`, `parseSitemap` | robots.txt and sitemap parsing |
+| `htmlToMarkdown`, `extractSeo` | Extractors |
+| `validateJsonSchema`, `parseJsonLoose` | Extraction helpers |
+| `createApiServer`, `assertPublicUrl`, `createUrlGuard` | Server and SSRF protection |
+| `TemplateRegistry`, `AnimeStreamTemplate`, `MadaraTemplate`, `GenericTemplate`, `BaseTemplate` | Templates |
+| `exportReport`, `toJson` | Report output |
+| `resolveConfig`, `defaultConfig` | Configuration |
+| `solveCaptcha`, `detectCaptcha`, `detectCaptchaKind`, `listResolvers`, `registerResolver`, `getResolver` | Captcha solving (see below) |
+
+## Captcha
+
+`solveCaptcha(page, options)` works on a Playwright `Page`. It detects the captcha, solves it in the browser, and returns a result with `kind`, `solved`, `token`, `cookies`, `method`, `challenge` and `detail`. Pass `url` to let the solver open its own tab instead of touching your page. `timeoutMs`, `retries` and `signal` control the run, and `kind` forces a specific resolver.
+
+```ts
+import { detectCaptchaKind, solveCaptcha } from '@zhadev/autocraw';
+
+const kind = await detectCaptchaKind(page);
+if (kind) {
+  const result = await solveCaptcha(page, { kind, timeoutMs: 30000 });
+  console.log(result.solved, result.token);
+}
+```
+
+Supported kinds are listed in [browser and anti-bot](guides/browser-and-anti-bot.md). Not everything is solvable; when a challenge needs something the solver does not have (for example an audio transcript for reCAPTCHA v2), `result.solved` is `false` and `result.challenge` names the reason.
+
+## Errors
+
+All errors thrown on purpose are `AutocrawError` with a `code` and `details`. Check with `isAutocrawError(error)`. See [errors](reference/errors.md).
+
+```ts
+import { isAutocrawError } from '@zhadev/autocraw';
+
+try {
+  await crawler.scrape('example.com');
+} catch (error) {
+  if (isAutocrawError(error) && error.code === 'E_BLOCKED') console.error('Blocked:', error.message);
+  else throw error;
+}
+```
+
+---
+
+Source: docs/en/server-api.md
+
+# Server API
+
+`zac serve` runs a small REST API that wraps the library. It is meant for local tools, internal services and agents.
+
+```sh
+zac serve --port 3002 --key my-secret
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--host` | Interface to bind. Default `127.0.0.1` |
+| `--port` | Port. Default `3002` |
+| `--key` | Bearer token. Can also be set with `AUTOCRAW_SERVER_KEY` |
+| `--max-concurrent` | Simultaneous jobs. Default 4. Extra requests get HTTP 429 |
+| `--allow-private` | Allow localhost and private network targets |
+
+Binding to anything other than a loopback address without a key is refused.
+
+## Security model
+
+- Requests must send `Authorization: Bearer <key>` when a key is set. Comparison is constant time.
+- By default every URL is checked before fetching, including redirects and browser sub-requests. Loopback, private, link-local, carrier-grade NAT and metadata addresses, plus `localhost`, `.local` and `.internal` names, are blocked. Hostnames are resolved and every address is checked.
+- The check happens at request time. A hostile DNS server could still change its answer between the check and the connection, so do not treat this as a complete defense on an untrusted network. Run the server in a network segment with no access to internal services.
+- Request bodies are limited to 1 MiB.
+- The server does not provide HTTPS or rate limiting per client. Put it behind a reverse proxy if you expose it.
+
+## Response format
+
+Success:
+
+```json
+{ "success": true, "data": { } }
+```
+
+Failure:
+
+```json
+{ "success": false, "error": { "code": "E_INPUT", "message": "Invalid request: url: Invalid input" } }
+```
+
+HTTP status codes: 400 invalid input or configuration, 401 bad token, 403 robots.txt, 404 unknown route, 405 wrong method, 413 body too large, 422 unparseable content, 429 busy or provider rate limit, 502 upstream or blocked, 504 timeout.
+
+## Endpoints
+
+All endpoints except `GET /health` are `POST` with a JSON body.
+
+### GET /health
+
+Returns `{ "status": "ok", "version": "..." }`. No authentication.
+
+### POST /v1/scrape
+
+```json
+{
+  "url": "https://example.com",
+  "formats": ["markdown", "links"],
+  "onlyMainContent": true,
+  "includeTags": ["article"],
+  "excludeTags": [".ads"],
+  "mode": "auto",
+  "waitFor": 1000,
+  "waitForSelector": "main",
+  "actions": [{ "type": "click", "selector": "button.more" }],
+  "fullPage": false
+}
+```
+
+Only `url` is required. Returns a `ScrapeResult`. A `screenshot` format returns a base64 PNG.
+
+### POST /v1/map
+
+```json
+{ "url": "https://example.com", "search": "pricing", "limit": 100, "sitemap": "include", "includeSubdomains": false }
+```
+
+### POST /v1/crawl
+
+```json
+{ "url": "https://example.com", "maxPages": 25, "maxDepth": 2, "include": ["/blog/"], "exclude": [], "perPatternLimit": 5 }
+```
+
+Synchronous. `maxPages` is capped at 100 and `maxDepth` at 5.
+
+### POST /v1/discover
+
+```json
+{ "url": "https://example.com", "crawl": true, "probes": true, "crawlPages": 30, "markdown": { "template": "site-structure", "language": "en" } }
+```
+
+Returns `{ report, markdown }`. `markdown` is null when not requested. The server generates the deterministic Markdown only; for AI Markdown call the library or CLI.
+
+### POST /v1/extract
+
+```json
+{
+  "urls": ["https://example.com/product"],
+  "schema": { "type": "object", "properties": { "name": { "type": "string" } } },
+  "prompt": "Product name",
+  "ai": { "provider": "openai", "apiKey": "sk-...", "model": "gpt-4.1" }
+}
+```
+
+Up to 10 URLs. Without `ai`, the server uses `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` from its environment.
+
+### POST /v1/batch/scrape
+
+```json
+{ "urls": ["https://a.example", "https://b.example"], "formats": ["markdown"], "concurrency": 4 }
+```
+
+Up to 50 URLs. Returns one item per URL with `ok`, `data` or `error`.
+
+## Example
+
+```sh
+curl -s http://127.0.0.1:3002/v1/scrape \
+  -H "authorization: Bearer my-secret" \
+  -H "content-type: application/json" \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+```
+
+## Embedding
+
+```ts
+import { Autocraw, createApiServer, createUrlGuard } from '@zhadev/autocraw';
+
+const guard = createUrlGuard();
+const engine = new Autocraw({}, undefined, { urlGuard: guard });
+const server = createApiServer({ engine, apiKey: process.env.KEY, guard, maxConcurrent: 4 });
+server.listen(3002, '127.0.0.1');
+```
+
+---
+
+Source: docs/en/guides/scraping.md
+
+# Scraping pages, batches, actions and screenshots
+
+## Single page
+
+```sh
+zac scrape example.com
+```
+
+By default autocraw fetches with plain HTTP, converts the main content to Markdown and drops navigation, header, footer and sidebars. If the page is blocked by a challenge or is an empty client-side shell, it retries with a browser automatically (`--mode auto`).
+
+Force a mode with `--mode http` or `--mode browser`.
+
+## Choosing content
+
+- `--full` keeps everything, including navigation and footers.
+- `--include-tag article` keeps only elements matching the selector.
+- `--exclude-tag ".cookie-banner"` removes elements matching the selector. Both flags are repeatable.
+
+Include and exclude run before main-content detection. An invalid CSS selector fails with `E_INPUT`.
+
+## Output formats
+
+| Format | Content |
+| --- | --- |
+| `markdown` | LLM-ready Markdown with absolute links |
+| `html` | The fetched HTML |
+| `text` | Visible text |
+| `links` | Unique links with text, rel and an internal flag |
+| `images` | Images with alt text, size and lazy-loading flag |
+| `metadata` | Title, description, canonical, headings, Open Graph, JSON-LD types and SEO issues |
+| `screenshot` | PNG, base64 in JSON or a file with `--screenshot` |
+
+## Batches
+
+```sh
+zac batch --file urls.txt -f markdown --batch-concurrency 6 -o results.ndjson
+```
+
+Output is NDJSON with one object per URL. Duplicates are removed. A failure is reported in that URL's `error` field and does not stop the others. Politeness settings still apply per host (`--delay`).
+
+## Browser actions
+
+Actions run after the page loads, in order, in a real browser. Put them in a JSON file:
+
+```json
+[
+  { "type": "wait", "selector": "main" },
+  { "type": "click", "selector": "button.load-more" },
+  { "type": "wait", "ms": 1000 },
+  { "type": "scroll", "direction": "down", "amount": 1600 }
+]
+```
+
+```sh
+zac scrape example.com --actions actions.json
+```
+
+| Action | Fields |
+| --- | --- |
+| `wait` | `ms` (up to 30000) or `selector` |
+| `click` | `selector` |
+| `type` | `selector`, `text` |
+| `press` | `key`, for example `Enter` |
+| `scroll` | `direction` (`down` or `up`), `amount` in pixels |
+| `hover` | `selector` |
+| `select` | `selector`, `value` |
+
+At most 50 actions. If an action fails, the error names the action number and type. Actions and screenshots are not available in `--mode http`.
+
+## Screenshots
+
+```sh
+zac scrape example.com --screenshot page.png --full-page
+```
+
+Images and fonts are normally blocked in browser mode for speed. Screenshots allow them automatically.
+
+## Dynamic pages
+
+For client-rendered pages use `--mode browser`, `--wait <selector>` to wait for a specific element, or `--scroll` for lazy-loaded lists. `zac inspect <url> --compare` tells you whether a page actually needs a browser.
+
+---
+
+Source: docs/en/guides/discovery.md
+
+# Site discovery and reports
+
+`discover` answers the question "how is this site built and how do I crawl it?"
+
+```sh
+zac discover your-site.example -o site.md --json-out report.json
+```
+
+## What it does
+
+1. Reads robots.txt. Refuses a site that disallows everything unless `--ignore-robots` is set.
+2. Fetches the home page with HTTP, and with a browser too when HTTP is blocked or the HTML looks like an empty shell.
+3. Detects the tech stack: frameworks, CMS, CDN, server, analytics, libraries.
+4. Detects server payloads: Next.js `__NEXT_DATA__` and RSC flight chunks, Nuxt 2 and 3, Remix, SvelteKit, Astro islands, Qwik.
+5. Compares raw and rendered HTML to find hydration traps.
+6. Picks a site template (AnimeStream, Madara or generic). See [templates](templates.md).
+7. Reads sitemaps and groups URLs into patterns.
+8. Probes the site: pagination (verifies page 2 returns different items), search (runs a real query), filters, a detail page, an episode or chapter page and its media sources.
+9. Optionally runs a shallow crawl.
+10. Writes the report as JSON and Markdown.
+
+## Rendering strategy and data format
+
+These are separate questions.
+
+Rendering strategy: `ssr`, `ssg`, `csr`, `rsc` or `hybrid`, with reasons. For example a WordPress theme with plenty of visible text and no hydration payload is reported as `ssr`; an empty `#root` is `csr`; flight chunks are `rsc`.
+
+Data format: `html-only`, `json-hydration`, `rsc-flight`, `graphql`, `rest-json` or `mixed`. XHR/fetch calls are only captured when a browser render happened; run with `--mode browser` to capture API endpoints.
+
+## Hydration traps
+
+A hydration trap is a page whose raw HTML is a shell and whose content appears only after JavaScript runs. autocraw reports the text and link counts for raw and rendered HTML and the ratio. When a trap is found, plain HTTP crawling will miss content and the report says so.
+
+## Speeding up or narrowing down
+
+```sh
+zac discover your-site.example --no-crawl --no-probes
+zac discover your-site.example --template wordpress-madara
+zac probe search your-site.example
+```
+
+## Using the report
+
+The JSON report is stable and versioned (`schemaVersion`). See the [schema](../reference/report-schema.md). Common follow-ups:
+
+```sh
+zac export report.json -f csv-urls -o url-patterns.csv
+zac markdown report.json --markdown ai --lang id -o report.id.md
+```
+
+## Caveats section
+
+Anything autocraw could not verify is listed under caveats: unreadable sitemap files, a listing page that returned an error, search that returned no recognizable cards, pagination that could not be verified, and similar. Read it before trusting the rest.
+
+---
+
+Source: docs/en/guides/extract.md
+
+# Structured extraction with AI
+
+`extract` scrapes a page to Markdown and asks an AI model to return JSON. If you provide a JSON schema, the answer is validated and retried once with the problems fed back to the model.
+
+```sh
+zac extract example.com/product --schema product.schema.json --api-key YOUR_KEY
+```
+
+`product.schema.json`:
+
+```json
+{
+  "type": "object",
+  "required": ["name", "price"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "price": { "type": ["number", "null"] },
+    "inStock": { "type": "boolean" }
+  }
+}
+```
+
+Or only a prompt:
+
+```sh
+zac extract example.com/about --prompt "company name, founding year and headquarters"
+```
+
+## Providers
+
+OpenAI and Anthropic. Choose with `--ai-provider`, or let autocraw infer it from the key prefix (`sk-ant-` is Anthropic) or from `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Override the model with `--ai-model`.
+
+## Behavior
+
+- Page content is passed to the model inside `<page>` tags and the model is told to treat it as data and ignore instructions in it. This reduces, but does not eliminate, prompt injection risk. Never use extracted values to run code or make privileged decisions without checking them.
+- Missing values are returned as null; the model is told not to invent data.
+- Content is truncated to the input token budget. When this happens `contentTruncated` is true.
+- Output for one URL is an object; for several it is an array. Each result has `ok`, `data`, `errors`, `model`, token counts and `contentTruncated`.
+- The exit code is 1 when any page failed validation.
+
+## Supported schema keywords
+
+`type` (including arrays of types), `enum`, `const`, `properties`, `required`, `additionalProperties: false`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, `anyOf`, `oneOf`. `$ref` is not supported and is rejected; inline the referenced schema. Other keywords are ignored by the validator, though the model still sees them.
+
+## Library
+
+```ts
+const [result] = await crawler.extract('example.com/product', {
+  ai: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY! },
+  schema,
+  prompt: 'Extract the product',
+  maxAttempts: 2,
+});
+if (result.ok) console.log(result.data);
+else console.error(result.errors);
+```
+
+## Cost
+
+Each page costs roughly its Markdown size in input tokens plus the schema, with up to two attempts. Use `--include-tag` or the default main-content mode to keep input small, and `--ai-max-input` to cap it.
+
+---
+
+Source: docs/en/guides/markdown-reports.md
+
+# Markdown reports: default and AI
+
+Both modes start from the same `SiteReport` and produce a Markdown document. Choose with `--markdown default|ai` or `mode: 'default' | 'ai'`.
+
+## Default mode
+
+Generated by code. No network and no API key. The same report always produces the same document.
+
+```sh
+zac discover your-site.example -o site.md
+zac markdown report.json --lang id -o site.id.md
+```
+
+Templates:
+
+| Template | Contents |
+| --- | --- |
+| `site-structure` | Overview, tech stack, URL patterns, pagination, search, filters, detail, watch or reader pages, media, robots and sitemap, SEO, caveats |
+| `seo-audit` | Overview, SEO, robots and sitemap, URL patterns, caveats |
+| `techstack` | Overview, tech stack and rendering, media, caveats |
+
+Languages: `en` and `id`. Labels and headings are translated; explanations produced by detectors stay in English. Options: `--no-toc`, `--no-frontmatter`.
+
+## AI mode
+
+An AI model writes the document from a trimmed, token-budgeted copy of the report.
+
+```sh
+zac markdown report.json --markdown ai --api-key YOUR_KEY --lang id
+```
+
+Library:
+
+```ts
+const result = await crawler.markdown(report, {
+  mode: 'ai',
+  template: 'seo-audit',
+  language: 'en',
+  ai: {
+    provider: 'anthropic',
+    apiKey: process.env.ANTHROPIC_API_KEY!,
+    model: 'claude-sonnet-5-5',
+    maxInputTokens: 24000,
+    maxOutputTokens: 6000,
+    cache: true,
+    fallbackToDefault: true,
+  },
+});
+```
+
+Defaults: OpenAI `gpt-4.1`, Anthropic `claude-sonnet-5-5`, 24000 input tokens, 6000 output tokens, temperature 0.2.
+
+How it works:
+
+1. The report is reduced. Long lists are cut and low-value fields are dropped step by step until it fits `maxInputTokens`. Trimmed parts are listed in `warnings`. If it still does not fit, you get `E_AI_CONTEXT`.
+2. The model is instructed to use only facts present in the JSON, to say "not detected" for missing data and to ignore instructions inside the JSON.
+3. The response is cached on disk by a hash of provider, model, template, language and prompt. A cache hit costs nothing. Disable with `--no-cache`. The cache folder is `~/.cache/autocraw/ai` or `AUTOCRAW_CACHE_DIR`.
+4. Transient failures such as rate limits, timeouts and 5xx errors are retried with backoff.
+5. If `fallbackToDefault` or `--ai-fallback` is set and the provider fails, the default document is returned and `usedFallback` is true. Configuration errors such as a missing key are never hidden by the fallback.
+
+The result includes `inputTokens`, `outputTokens`, `cached`, `model` and `warnings`. If the model reached the output limit, a warning says the document may be cut off.
+
+AI output can contain mistakes. Check important details against the JSON report. Generated documents end with a note saying which model wrote them.
+
+## Which to use
+
+Use default mode in CI, for archives and for anything that must be reproducible. Use AI mode when you want a narrative explanation or recommendations, and are happy to send report data, which includes URLs and page titles from the crawled site, to the provider.
+
+---
+
+Source: docs/en/guides/templates.md
+
+# Site templates
+
+A template teaches autocraw how a specific theme or CMS lays out listings, detail pages, episode pages and URLs. autocraw scores every registered template against the home page and uses the best one when its confidence is at least 0.5. Otherwise it falls back to the generic template.
+
+## Built in
+
+| Id | Name | Vendor | Content |
+| --- | --- | --- | --- |
+| `wordpress-animestream` | AnimeStream | Themesia | Anime |
+| `wordpress-madara` | Madara | MangaBooth | Manga, with the WP-Manga core plugin |
+| `generic` | Generic | autocraw | Heuristics for any site |
+
+Selectors were checked against AnimeStream 2.2.6 and Madara 2.2.5.2. Forks, child themes and heavily customized sites can differ. Force a template with `--template <id>`.
+
+### AnimeStream
+
+- Listing cards: `article.bs` with `.tt`, `.typez`, `.epx`, `.sb`.
+- Series detail: `.bigcontent`, `.infox` fields, `.genxed`, episode list `.eplister`.
+- Episode pages: `.megavid`, mirrors in `select.mirror`. Mirror values are usually base64 encoded iframe markup and are decoded.
+- URL shape: series at `/anime/{slug}/`, episodes as posts at the site root, genres at `/genres/{slug}/`, search at `/?s=`. The theme registers a `v` rewrite endpoint for mirrors. Custom permalinks change these.
+
+### Madara
+
+- Archive cards: `.page-item-detail`, search cards: `.c-tabs-item__content`.
+- Series detail: `.profile-manga`, `.post-content_item` pairs, `.genres-content`.
+- Chapters: `li.wp-manga-chapter`. When the list is lazy loaded, autocraw calls `POST {series}/ajax/chapters/?t=1`.
+- Reader: `.reading-content` images, with `data-src` preferred over placeholder `src`.
+- URL shape: `/manga/{slug}/`, `/manga/{slug}/{chapter}/`, `/manga-genre/{slug}/`, search `/?s=&post_type=wp-manga`. The post type slug and taxonomy slugs are configurable in WP-Manga settings.
+
+## What a template provides
+
+A template implements `SiteTemplate`:
+
+| Member | Purpose |
+| --- | --- |
+| `id`, `name`, `vendor`, `family`, `contentType` | Identity |
+| `detect(ctx)` | Confidence from 0 to 1 for a page |
+| `classify(url)` | Page kind for a URL, or null to defer |
+| `patterns(base)` | Documented URL patterns for reports |
+| `extractListing`, `extractDetail`, `extractChapters`, `extractWatch`, `extractRead` | Parse pages from a DOM `Document` |
+| `searchUrl`, `listUrl` | Build search and listing URLs |
+
+## Writing your own
+
+Extend `GenericTemplate` and override what differs.
+
+```ts
+import { Autocraw, GenericTemplate } from '@zhadev/autocraw';
+import type { PageKind, SiteTemplate, TemplateContext } from '@zhadev/autocraw';
+
+class MySiteTemplate extends GenericTemplate implements SiteTemplate {
+  override id = 'my-site';
+  override name = 'My Site';
+  override vendor = 'me';
+
+  override detect(ctx: TemplateContext): number {
+    return ctx.doc.querySelector('body.my-site') ? 1 : 0;
+  }
+
+  override classify(url: URL): PageKind | null {
+    return url.pathname.startsWith('/series/') ? 'detail' : null;
+  }
+}
+
+const crawler = new Autocraw();
+crawler.registerTemplate(new MySiteTemplate());
+const report = await crawler.discover('my-site.example');
+```
+
+Registering an id twice throws. Use a unique id. Keep `detect` cheap and conservative: a false positive on another site is worse than a miss. Add tests with small HTML fixtures, as in `tests/unit/templates.test.ts`.
+
+---
+
+Source: docs/en/guides/browser-and-anti-bot.md
+
+# Browser mode and anti-bot behavior
+
+## When the browser is used
+
+| Situation | Mode |
+| --- | --- |
+| `--mode http` | Never |
+| `--mode browser` | Always |
+| `--mode auto` | When HTTP is blocked (Cloudflare, DDoS-Guard, captcha pages, 403/429 with a challenge) or the HTML is an empty client-side shell |
+| Actions, screenshots, `--wait-ms` | Always, and they fail in `--mode http` |
+
+## Choosing a browser
+
+Use Playwright's Chromium (`npx playwright install chromium`) or your own Chrome or Chromium with `AUTOCRAW_BROWSER_PATH`, `--browser-path` or `browserPath`. Run `zac doctor` to verify.
+
+## Stealth
+
+Browser mode applies small patches by default: it hides `navigator.webdriver`, sets languages, plugins and a Chrome runtime object, and adjusts WebGL vendor strings. Disable with `--no-stealth`. These patches help with simple automation checks. They are not a guarantee against modern bot protection.
+
+## Challenges
+
+When a page title looks like a challenge ("Just a moment", "Attention required"), autocraw waits up to 15 seconds for it to resolve. If the page is still blocked, the command fails with `E_BLOCKED` and exit code 3.
+
+## Captcha
+
+autocraw can solve some captchas itself, right in the browser. Add `--solve-captcha` to any command that opens a browser (`scrape`, `discover`, `crawl`, `inspect`, `media`, …). After the page loads, autocraw detects a captcha, solves it, then reloads the page to pick up the real content.
+
+Supported types:
+
+| Type | How it is solved |
+| --- | --- |
+| Cloudflare Turnstile | Click through, or inject the widget and collect the token |
+| Cloudflare interstitial | Wait for `cf_clearance` |
+| reCAPTCHA v2 / v3 / Enterprise | Auto-click, or collect a token from the page |
+| GeeTest v3 / v4 | Slide puzzle: find the gap in the background image, then drag |
+| AWS WAF | Wait for the `aws-waf-token` cookie; click or drag if a puzzle appears |
+| Wobble | Slide puzzle with two gaps: pick the matching gap, then drag |
+| POWBlock | Mine a SHA-256/512 proof of work in Node, then submit it |
+
+Limits:
+
+- Only types in the table are detected. An unknown captcha just leaves the page blocked.
+- GeeTest is solved as a slide puzzle. Icon, click, nine-grid and word challenges are reported as unsupported.
+- reCAPTCHA v2 audio is not transcribed automatically. From the library you can pass a `transcribe` callback that receives the audio URL and returns the answer.
+- Solving uses a real browser and real mouse movement. That is not a guarantee against bot protection that changes, and it is not a bypass of access rules: use it only on sites you are allowed to interact with.
+- When `--solve-captcha` is set and the solve fails, the fetch continues with whatever it got and the page is reported blocked as usual.
+
+`--captcha-kind <kind>` forces a specific resolver instead of detecting. Run `zac scrape --help` to see the available kinds.
+
+If you hit blocks:
+
+- Try `--mode browser`, or `--headed` to watch what happens.
+- Slow down: `--delay 1500 --concurrency 1`.
+- Use a proxy you are allowed to use: `--proxy`.
+- Set a realistic `--user-agent`, or `--rotate-ua`.
+- Decide whether crawling the site is appropriate at all. See [responsible use](responsible-use.md).
+
+## HTTP client behavior
+
+- Retries transient failures (408, 425, 429, 500, 502, 503, 504 and network errors) with exponential backoff and jitter, honoring `Retry-After`.
+- Follows up to 10 redirects, keeps a per-host cookie jar, decodes the response charset and limits bodies to 8 MiB by default.
+- Detects blocked responses from headers and body markers and marks the result as blocked.
+
+## Rate limiting
+
+Requests to one host are spaced by `--delay` (default 500 ms), raised automatically to a robots.txt `Crawl-delay`, and pushed back after HTTP 429.
+
+## Speed and resources
+
+Browser mode blocks images, fonts and media unless you pass `--load-images` or request a screenshot. Pages are captured with their XHR and fetch calls (up to 300 entries, with 4 KB body snippets) so discovery can report API endpoints.
+
+---
+
+Source: docs/en/guides/intercept.md
+
+# Network intercept
+
+`zac intercept` records the HTTP traffic a page produces while it loads, and groups it by domain and path kind. It is meant for figuring out which endpoints a site talks to: APIs, RSC payloads, Next.js data files, GraphQL, and so on.
+
+## Why load the target from another page
+
+If you open a site directly, you mostly see the document and static assets. The interesting payloads — Next.js `_next/data`, RSC streams, API calls that fill in content — are often only requested when the page is reached through a client-side transition. This is why `intercept` loads the target from another page of the same site before it starts recording: navigate to the source, open the network recording, then go to the target. The soft navigation in between is what triggers the payload requests.
+
+Given two URLs, each one is used as the source for the other:
+
+```sh
+zac intercept example.com example.com/news
+```
+
+This records `example.com/news` while it is reached from `example.com`, and `example.com` while it is reached from `example.com/news`.
+
+With a single URL, pass the source explicitly:
+
+```sh
+zac intercept example.com/news --from example.com
+```
+
+Without `--from` a single URL is loaded directly. You still get the full recording, just without the cross-page trigger.
+
+## Interacting after load
+
+After the target loads, the command clicks a couple of in-page controls (buttons, tabs, toggles), then scrolls to the bottom. The point is to trigger requests that happen on user interaction rather than on load.
+
+- `--clicks <n>` changes how many controls are clicked (default 2, max 20).
+- `--no-interact` skips both clicks and scrolling.
+- `--no-scroll` keeps the clicks but skips scrolling.
+- In-page links (`<a href="#...">`) are included; regular links are not, so the recording stays on the target page.
+
+## Output
+
+The default output is a table per target: request count, host summary (requests, bytes, errors, kinds), then one row per request with status, method, URL, content type, size and kind.
+
+- `--json` prints the full data: every request with its method, URL, path, query parameters, POST body, request headers, response headers, status, content type, size and a 4 KB body snippet. Use `-o file.json` to save it.
+- `--markdown` writes a report with the same data as tables. Use `-o file.md` to save it.
+
+## What gets classified
+
+Requests are tagged with a kind based on the path:
+
+| Kind | Looks like |
+| --- | --- |
+| `next-data` | `/_next/data/<build>/<page>.json` |
+| `rsc` | any URL with `?rsc=` |
+| `data` | `/_data/...` and similar data paths |
+| `api` | `/api/...` |
+| `versioned-api` | `/v1/...`, `/v2/...` |
+| `graphql` | `/graphql` |
+| `trpc` | `/trpc/...` |
+| `media` | images, video, audio, fonts |
+| `static` | scripts and stylesheets |
+| `document` | the pages themselves |
+| `other` | everything else |
+
+Hosts are marked as:
+
+- `base` — the same host as the target URL.
+- `subdomain` — a host that ends with the target's host (for example `api.example.com` under `example.com`).
+- `external` — anything else.
+
+The summary also notes when no API-like payloads were seen, or when all traffic stayed on the base host.
+
+## Limits
+
+- The recording sees HTTP requests only. WebSocket messages are not captured.
+- The body snippet is capped at 4 KB and only saved for text-like responses.
+- At most 300 requests per target are kept.
+- Clicks are limited to safe in-page controls. Forms that navigate away are not submitted. A site that only exposes its endpoints after a deep interaction may still show nothing.
+- The classification is pattern based. A site that uses unusual paths simply falls under `other`.
+
+---
+
+Source: docs/en/guides/local-models.md
+
+# Local models
+
+AI mode and `extract` work with any OpenAI-compatible server, with Anthropic, or with Ollama. autocraw does not run or bundle a model itself: it is a Node.js tool, and it talks to whatever inference server you already have running, the same way it talks to OpenAI or Anthropic.
+
+## Option 1: Ollama
+
+```sh
+ollama serve
+ollama pull llama3.1
+zac discover your-site.example --markdown ai --ai-provider ollama --ai-model llama3.1
+```
+
+No API key is needed. If `OLLAMA_BASE_URL` or `OLLAMA_MODEL` is set and no OpenAI/Anthropic key is configured, `--ai-provider ollama` is picked automatically. Default base URL is `http://localhost:11434`; override it with `--ai-base-url` or `OLLAMA_BASE_URL`.
+
+## Option 2: any OpenAI-compatible server
+
+llama.cpp's `llama-server`, LM Studio, text-generation-webui, vLLM and others expose an OpenAI-style `/v1/chat/completions` endpoint. Point autocraw at it with `--ai-provider openai` and its base URL; most of these servers ignore the API key, so any non-empty string works unless the server enforces one:
+
+```sh
+zac extract your-site.example/product --ai-provider openai --ai-base-url http://localhost:8080/v1 --api-key not-needed --schema product.schema.json
+```
+
+## Downloading a GGUF model
+
+`zac models` manages plain `.gguf` files in `<cache>/models` (`~/.cache/autocraw/models` by default, or `AUTOCRAW_CACHE_DIR`). It only downloads and stores the file; it does not load or run it.
+
+```sh
+zac models pull TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+zac models pull TheBloke/Mistral-7B-Instruct-v0.2-GGUF:mistral-7b-instruct-v0.2.Q4_K_M.gguf
+zac models list
+zac models remove mistral-7b-instruct-v0.2.Q4_K_M.gguf
+```
+
+Without a file name, autocraw lists the repo's files and picks a `Q4_K_M` quantization if one exists, otherwise the smallest `.gguf`. The sha256 printed after a download is for you to compare against the repo yourself; autocraw does not fetch or trust a hash from Hugging Face. `zac install owner/name[:file.gguf]` is a shorter alias for `zac models pull`.
+
+To actually run a downloaded file, load it into your own inference server, for example:
+
+```sh
+ollama create my-model -f Modelfile   # Modelfile pointing FROM ./the-file.gguf
+# or
+llama-server -m ~/.cache/autocraw/models/the-file.gguf --port 8080
+```
+
+Then use Option 1 or Option 2 above.
+
+## Community picks (verified)
+
+The lists below are community-maintained reference picks, not recommendations by autocraw. Every repo was checked against the Hugging Face Hub on 2026-11-13 (via the Hub's API/MCP) and returned a public model page. That only confirms the repo exists, it says nothing about quality, and the claims in the notes come from the list contributors. Entries whose repos were private, gated, or not found were left out.
+
+Memory numbers are rough estimates for the common `Q4_K_M` quantization plus runtime overhead (KV cache), not official figures. Check the repo's file tree for exact sizes, and the model card for the license before using a model. A license marked "other" is not open source, or has extra terms. Benchmark figures in the "Source/benchmark" column are contributor claims from the shortlist, not results measured by autocraw — verify them yourself before relying on them.
+
+### Text LLMs · light (roughly 0.5–6 GB file)
+
+| # | Model | URL (repo) | Mem min | Mem recommended | License | Sumber/Benchmark | Notes |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 1 | Qwen2.5-0.5B-Instruct (Q4_K_M) | [tensorblock/Qwen2.5-0.5B-Instruct-GGUF](https://huggingface.co/tensorblock/Qwen2.5-0.5B-Instruct-GGUF) | 2 GB | 4 GB | Apache-2.0 | — | Light chat, simple JSON, thin code |
+| 2 | SmolLM2-360M-Instruct | [prithivMLmods/SmolLM2-360M-F32-GGUF](https://huggingface.co/prithivMLmods/SmolLM2-360M-F32-GGUF) | 2 GB | 4 GB | check card | — | Very light, fast short chat |
+| 3 | Gemma 3 270M IT | [daniloreddy/gemma-3-270m-it_GGUF](https://huggingface.co/daniloreddy/gemma-3-270m-it_GGUF) | 2 GB | 4 GB | check card | — | Basic instruction following |
+| 4 | Zyn Dwarf 1.0 | [itsZyn/ZynDwarf-1.0](https://huggingface.co/itsZyn/ZynDwarf-1.0) | 2 GB | 4 GB | check card | — | Mini code specialist |
+| 5 | Qwen2.5-0.5B-Instruct-heretic | [saidutta69/Qwen2.5-0.5B-Instruct-heretic](https://huggingface.co/saidutta69/Qwen2.5-0.5B-Instruct-heretic) | 2 GB | 4 GB | check card | — | Uncensored small variant |
+| 6 | MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-heretic | [saidutta69/MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-heretic](https://huggingface.co/saidutta69/MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-heretic) | 4 GB | 8 GB | check card | — | Uncensored, tool-calling tuned |
+| 7 | LFM2.5-1.2B-Thinking-heretic | [saidutta69/LFM2.5-1.2B-Thinking-heretic](https://huggingface.co/saidutta69/LFM2.5-1.2B-Thinking-heretic) | 4 GB | 8 GB | check card | MATH-500 & IFEval decent (claim) | Edge reasoning focus |
+| 8 | Bella-Bartender-1B-Heretic | [mradermacher/bella-bartender-heretic-1b-i1-GGUF](https://huggingface.co/mradermacher/bella-bartender-heretic-1b-i1-GGUF) | 4 GB | 8 GB | check card | — | Llama 3.2 1B, abliterated |
+| 9 | Spark-X2.6-1.7B-GGUF | [XHToken/Spark-X2.6-1.7B-GGUF](https://huggingface.co/XHToken/Spark-X2.6-1.7B-GGUF) | 4 GB | 8 GB | check card | — | On-device agent tasks |
+| 10 | LFM3-1.7B-GGUF | [LiquidAI/LFM3-1.7B-GGUF](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF) | 4 GB | 8 GB | other | — | Trending, fast small chat |
+| 11 | LFM3-1.7B-Uncensored-GGUF | [AtomicChat/LFM3-1.7B-Uncensored-GGUF](https://huggingface.co/AtomicChat/LFM3-1.7B-Uncensored-GGUF) | 4 GB | 8 GB | other | — | Uncensored variant of #10 |
+| 12 | Qwen-4B-Sagui-Vision-Thinking-Code | [sysrobson/Qwen-4B-Sagui-Vision-Thinking-Code-GGUF](https://huggingface.co/sysrobson/Qwen-4B-Sagui-Vision-Thinking-Code-GGUF) | 6 GB | 12 GB | check card | HumanEval-TS 44.0% (claim) | Thinking + image input + TS code |
+| 13 | MiniCPM5-2B-Claude-Fable5-heretic | [saidutta69/MiniCPM5-2B-Claude-Fable5-heretic](https://huggingface.co/saidutta69/MiniCPM5-2B-Claude-Fable5-heretic) | 6 GB | 12 GB | check card | — | Uncensored agentic, JSON tools |
+| 14 | Mirxa3.5-2B-Uncensored-Aggressive | [mirxa2/mirxa3.5-2B-Uncensored-Aggressive](https://huggingface.co/mirxa2/mirxa3.5-2B-Uncensored-Aggressive) | 6 GB | 12 GB | check card | 0/465 refusals (claim) | Fully uncensored, multimodal |
+| 15 | LFM2.5-1.2B-Nova-Function-Calling | [NovachronoAI/LFM2.5-1.2B-Nova-Function-Calling-GGUF](https://huggingface.co/NovachronoAI/LFM2.5-1.2B-Nova-Function-Calling-GGUF) | 4 GB | 8 GB | check card | JSON structure accuracy 97% (claim) | JSON-valid function calling |
+| 16 | Spark-X2.6-4B-GGUF | [XHToken/Spark-X2.6-4B-GGUF](https://huggingface.co/XHToken/Spark-X2.6-4B-GGUF) | 6 GB | 12 GB | Apache-2.0 | — | On-device agent model, 4B |
+| 17 | Parable-Qwen3-4B-Claude-Fable-5 | [AnkitAI/Parable-Qwen3-4B-Claude-Fable-5](https://huggingface.co/AnkitAI/Parable-Qwen3-4B-Claude-Fable-5) | 6 GB | 12 GB | check card | HumanEval 74.4 (claim) | Fine-tune of a Claude agent session |
+| 18 | Qwen3.5-4B-Abliterated-PMRA | [Asystemoffields/Huihui-Qwen3.5-4B-Abliterated-PMRA-GGUF](https://huggingface.co/Asystemoffields/Huihui-Qwen3.5-4B-Abliterated-PMRA-GGUF) | 6 GB | 12 GB | check card | — | Uncensored, PMRA mixed quantization |
+| 19 | Qwen3.5-4B-Uncensored-HauhauCS-Aggressive | [HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive](https://huggingface.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive) | 6 GB | 12 GB | check card | — | Aggressive uncensored |
+| 20 | DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic (GGUF) | [mradermacher/DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic-GGUF](https://huggingface.co/mradermacher/DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic-GGUF) | 8 GB | 16 GB | check card (base: Apache-2.0) | Refusal 3/100 after abliteration; fine-tuned on ~250K math/STEM samples from DeepSeek-V4-Pro (claim) | Q4_K_M ~5.8 GB; Q8_0 ~9.8 GB; separate `mmproj` for image input |
+| 21 | DeepSeek-V4-Pro-Qwen3.5-9B-MTP (GGUF) | [Jackrong/DeepSeek-V4-Pro-Qwen3.5-9B-MTP-GGUF](https://huggingface.co/Jackrong/DeepSeek-V4-Pro-Qwen3.5-9B-MTP-GGUF) | 8 GB | 16 GB | Apache-2.0 | — | MTP variant of the 9B DeepSeek-derived model |
+| 22 | BotPsy-0.8B (GGUF) | [qvac/BotPsy-0.8B-GGUFs](https://huggingface.co/qvac/BotPsy-0.8B-GGUFs) | 2 GB | 4 GB | Apache-2.0 | — | Agentic tool-calling, on-device |
+| 23 | dale-0.8b (GGUF) | [manuelgscom/dale-0.8b-GGUF](https://huggingface.co/manuelgscom/dale-0.8b-GGUF) | 2 GB | 4 GB | Apache-2.0 | — | Shell / bash command model |
+| 24 | NVIDIA-Nemotron-3.5-Bolt-E4B (GGUF) | [unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF](https://huggingface.co/unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF) | 6 GB | 12 GB | other | — | Small edge model, many languages |
+
+### Text LLMs · medium to large (roughly 10–50 GB file)
+
+| # | Model | URL (repo) | Mem min | Mem recommended | License | Sumber/Benchmark | Notes |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 25 | Qwen3.8-27B-Uncensored (GGUF) | [JonathanColetti/Qwen3.8-27B-Uncensored-GGUF](https://huggingface.co/JonathanColetti/Qwen3.8-27B-Uncensored-GGUF) | 20 GB | 32 GB | Apache-2.0 | — | Trending, llama.cpp, uncensored |
+| 26 | Ternary-Bonsai-2-27B (GGUF) | [prism-ml/Ternary-Bonsai-2-27B-gguf](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf) | 8 GB | 16 GB | Apache-2.0 | — | Ternary 2-bit quant, on-device friendly |
+| 27 | Swift-1.5-Qwen3.8-27B (GSQ-RCO GGUF) | [ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27B-GSQ-RCO-GGUF) | 20 GB | 32 GB | other | — | Efficient-thinking 27B |
+| 28 | Qwen3.8-27B (IQ4_XS / Q4_K_M / Q5_K_M / Q3_K_M / Q6_K) | [bowmanslayer/Qwen3.8-27B-GGUF](https://huggingface.co/bowmanslayer/Qwen3.8-27B-GGUF) | 20 GB (Q4) | 32 GB | check card | — | Balanced 27B family; Q8 ~28 GB |
+| 29 | Qwen3.8-27B (IQ4_KS, agentic coding) | [ji-farthing/Qwen3.8-27B-ik-llama-GGUF](https://huggingface.co/ji-farthing/Qwen3.8-27B-ik-llama-GGUF) | 20 GB | 32 GB | check card | — | Importance-matrix quant for coding |
+| 30 | Qwen3.8-27B (Q4_K_M) | [unsloth/Qwen3.8-27B-GGUF](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) | 20 GB | 32 GB | check card | — | Speed/quality sweet spot |
+| 31 | Qwen3.8-27B-TURBO-Fable-Cold-Fusion (Uncensored, IQ4_XS / Q4_K_M) | [Solstice-AI/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-GGUF-UltraOptimised-DSpark-MTP](https://huggingface.co/Solstice-AI/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-GGUF-UltraOptimised-DSpark-MTP) | 20 GB | 32 GB | check card | LiveCodeBench 90.3% (claim) | Uncensored + strong coding (~16.6–18 GB) |
+| 32 | Zwielicht-27B | [Nimbz/Zwielicht-27B](https://huggingface.co/Nimbz/Zwielicht-27B) | 20 GB | 32 GB | check card | — | Creative 27B merge, thinking preserved |
+| 33 | G4-LuneLight-31B | [zerofata/G4-LuneLight-31B](https://huggingface.co/zerofata/G4-LuneLight-31B) | 24 GB | 40 GB | check card | — | Creative/RP fits Gemma 4 |
+| 34 | Gemma 4 31B IT | [google/gemma-4-31B-it](https://huggingface.co/google/gemma-4-31B-it) | 24 GB | 40 GB | check card | — | Official, multimodal document workflows |
+| 35 | GLM-4.7-Flash (31B MoE) | [zai-org/GLM-4.7-Flash](https://huggingface.co/zai-org/GLM-4.7-Flash) | 20 GB | 32 GB | check card | — | Fast MoE, heavy thinking block |
+| 36 | Q3.5-BlueStar-v2-27B | [zerofata/Q3.5-BlueStar-v2-27B](https://huggingface.co/zerofata/Q3.5-BlueStar-v2-27B) | 20 GB | 32 GB | check card | — | Creative Qwen 3.5 based |
+| 37 | MS3.2-PaintedFantasy-v4.1-24B | [zerofata/MS3.2-PaintedFantasy-v4.1-24B](https://huggingface.co/zerofata/MS3.2-PaintedFantasy-v4.1-24B) | 20 GB | 32 GB | check card | — | RP model, optional thinking mode |
+| 38 | OrcaSAQ-2-Cyber-27B-Uncensored (GGUF) | [orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF](https://huggingface.co/orcarouter/OrcaSAQ-2-Cyber-27B-Uncensored-GGUF) | 20 GB | 32 GB | Apache-2.0 | — | Uncensored, mixed-precision 27B |
+| 39 | Qwen3-Coder-480B-A35B-Instruct | [Qwen/Qwen3-Coder-480B-A35B-Instruct](https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct) | 64 GB+ | 128 GB+ | check card | SWE-bench Verified 66.5% (claim) | Reference only |
+| 40 | Devstral-Small-2507 | [mistralai/Devstral-Small-2507](https://huggingface.co/mistralai/Devstral-Small-2507) | 24 GB | 40 GB | check card | — | Coding-agent model |
+| 41 | gpt-oss-120b | [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b) | 48 GB | 80 GB | Apache-2.0 | — | Reasoning at 120B scale |
+| 42 | Phi-4-mini-instruct | [microsoft/Phi-4-mini-instruct](https://huggingface.co/microsoft/Phi-4-mini-instruct) | 4 GB | 8 GB | MIT | — | CPU-friendly, weak hardware |
+| 43 | Qwen3-8B | [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) | 8 GB | 16 GB | Apache-2.0 | — | Default local LLM family baseline |
+| 44 | Gemma 3 27B IT | [google/gemma-3-27b-it](https://huggingface.co/google/gemma-3-27b-it) | 20 GB | 32 GB | Gemma terms | — | Strong single-GPU multimodal |
+
+### OCR / document-to-Markdown
+
+| # | Model | URL (repo) | Mem min | Mem recommended | License | Sumber/Benchmark | Notes |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 45 | OvisOCR2 | [ATH-MaaS/OvisOCR2](https://huggingface.co/ATH-MaaS/OvisOCR2) | 4 GB | 8 GB | check card | OmniDocBench v1.6 96.58 (claim) | Page-to-Markdown, tables and formulas |
+| 46 | NVIDIA-Nemotron-Parse-2.0 | [nvidia/NVIDIA-Nemotron-Parse-2.0](https://huggingface.co/nvidia/NVIDIA-Nemotron-Parse-2.0) | 4 GB | 8 GB | check card | — | Text, boxes, reading order, chart-to-table |
+| 47 | HunyuanOCR | [tencent/HunyuanOCR](https://huggingface.co/tencent/HunyuanOCR) | 4 GB | 8 GB | check card | — | Multilingual document parsing, llama.cpp deploy |
+| 48 | PaddleOCR-VL-1.6 | [PaddlePaddle/PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | 4 GB | 8 GB | check card | 96.33 (claim) | Multilingual tables, formulas, charts |
+| 49 | Unlimited-OCR (Baidu) | [baidu/Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) | 8 GB | 16 GB | check card | Reads 40+ page batches with constant memory (claim) | Document OCR at scale |
+| 50 | chandra-ocr-2 | [datalab-to/chandra-ocr-2](https://huggingface.co/datalab-to/chandra-ocr-2) | 10 GB | 16 GB | check card | — | Documents and handwriting to Markdown/HTML/JSON |
+| 51 | dots.mocr | [dots-studio/dots.mocr](https://huggingface.co/dots-studio/dots.mocr) | 6 GB | 12 GB | check card | — | Multilingual text recognition + document parsing |
+| 52 | MinerU2.5-Pro-2605-1.2B | [opendatalab/MinerU2.5-Pro-2605-1.2B](https://huggingface.co/opendatalab/MinerU2.5-Pro-2605-1.2B) | 4 GB | 8 GB | check card | — | Structured JSON and Markdown from documents |
+| 53 | Infinity-Parser2-Pro | [infly/Infinity-Parser2-Pro](https://huggingface.co/infly/Infinity-Parser2-Pro) | 24 GB | 40 GB | check card | — | EN/ZH documents to Markdown/layout |
+| 54 | MonkeyOCRv2-S-Parsing | [zenosai/MonkeyOCRv2-S-Parsing](https://huggingface.co/zenosai/MonkeyOCRv2-S-Parsing) | 2 GB | 4 GB | check card | — | Small parsing checkpoint |
+| 55 | surya-ocr-2 | [datalab-to/surya-ocr-2](https://huggingface.co/datalab-to/surya-ocr-2) | 2 GB | 4 GB | check card | — | Layout and tables |
+| 56 | TeleOCR | [XingChen-AGI/TeleOCR](https://huggingface.co/XingChen-AGI/TeleOCR) | 4 GB | 8 GB | check card | — | Digital + camera-captured pages |
+
+### Audio, video and image
+
+| # | Model | URL (repo) | Mem min | Mem recommended | License | Sumber/Benchmark | Notes |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| 57 | Kokoro-82M (TTS) | [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | 1 GB | 2 GB | Apache-2.0 | ~100x realtime on GPU (claim) | 82M params, 11 languages |
+| 58 | Chatterbox (TTS) | [ResembleAI/chatterbox](https://huggingface.co/ResembleAI/chatterbox) | 2 GB | 4 GB | MIT | — | Voice cloning from short reference audio |
+| 59 | Orpheus (TTS, Llama 3.2) | [canopylabs/orpheus-3b-0.1-ft](https://huggingface.co/canopylabs/orpheus-3b-0.1-ft) | 6 GB | 12 GB | check card | — | Emotion tags, high-fidelity output |
+| 60 | Fish Speech 1.5 (TTS) | [fishaudio/fish-speech-1.5](https://huggingface.co/fishaudio/fish-speech-1.5) | 6 GB | 12 GB | CC-BY-NC-SA | 80+ languages (claim) | Commercial use needs a license |
+| 61 | HunyuanVideo 1.5 | [Tencent/HunyuanVideo](https://huggingface.co/Tencent/HunyuanVideo) | 20 GB | 32 GB | check card | — | Video generation, ~16–20 GB FP16 |
+| 62 | LTX-Video | [Lightricks/LTX-Video](https://huggingface.co/Lightricks/LTX-Video) | 12 GB | 16 GB | check card | Near real-time (claim) | 16 GB VRAM friendly |
+| 63 | CogVideoX | [THUDM/CogVideo](https://huggingface.co/THUDM/CogVideo) | 12 GB | 24 GB | check card | — | ComfyUI ecosystem, LoRA fine-tuning |
+| 64 | MiniMax-H3-Image | [MiniMaxAI/MiniMax-H3-Image](https://huggingface.co/MiniMaxAI/MiniMax-H3-Image) | 24 GB | 48 GB | check card | Rank 1 open-weight text-to-image (claim) | 4K, 16 reference images |
+
+## What autocraw deliberately does not do
+
+- It does not embed a Python runtime, `llama-cpp-python`, or any model inference engine. Doing so would make a Node.js CLI depend on a separate language and a multi-gigabyte native stack, which is a maintenance and install-size cost this project is not taking on.
+- It does not ship, recommend or default to any specific model, including ones marketed as having safety mitigations removed. Pick and run your own model with your own inference server; autocraw only talks to its API.
+- `zac serve` is autocraw's own scraping REST API (see [Server API](../server-api.md)); it does not start or manage a model server. Run your inference server separately.
+
+---
+
+Source: docs/en/guides/responsible-use.md
+
+# Responsible use
+
+autocraw can fetch many pages quickly. You are responsible for how you use it.
+
+## Defaults that protect sites
+
+- robots.txt is honored, including `Crawl-delay`. `--ignore-robots` exists for sites you own or have permission to test. Do not use it to override a site operator's wishes.
+- Requests are spaced per host (500 ms by default) and concurrency is 3.
+- Crawls are bounded by `maxPages` and `maxDepth`.
+- `discover` refuses sites whose robots.txt disallows everything.
+
+## Your obligations
+
+- Follow the terms of service of the sites you access and the laws that apply to you, including copyright, database rights and computer misuse and privacy laws.
+- Do not copy, redistribute or republish content you do not have the right to use. Links, titles and structure are one thing; videos, images and full text are another.
+- Do not bypass paywalls, authentication, technical protection measures or DRM. autocraw reports signs of protection such as encrypted HLS or DRM key systems; it does not break them.
+- Do not use it for credential stuffing, scraping personal data without a lawful basis, harassment or disruption.
+- Identify yourself where appropriate with a custom `--user-agent` that includes contact information.
+
+## Running the server
+
+`zac serve` fetches URLs on behalf of whoever can reach it. Keep it on `127.0.0.1` or behind authentication, and leave private address blocking on. See the [server API](../server-api.md) for the security model.
+
+## AI providers
+
+AI mode and `extract` send page content or report data to OpenAI or Anthropic. Check your provider terms and your data policies before sending third-party or confidential content.
+
+## Reporting security issues
+
+See `SECURITY.md` in the repository root.
+
+---
+
+Source: docs/en/reference/config.md
+
+# Configuration
+
+## Sources and precedence
+
+Highest first:
+
+1. CLI flags
+2. A JSON file: `--config <path>`, otherwise `autocraw.config.json` or `.autocrawrc.json` in the current directory
+3. Environment variables: `AUTOCRAW_BROWSER_PATH`, `AUTOCRAW_PROXY`
+4. Defaults
+
+Unknown keys in a config file are rejected.
+
+## Options
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `userAgent` | null | Fixed user agent. Null uses a recent desktop Chrome string |
+| `rotateUserAgent` | false | Pick from built-in user agents per request |
+| `timeoutMs` | 30000 | Request and navigation timeout, 1000 to 300000 |
+| `retries` | 2 | Retries for transient failures, 0 to 10 |
+| `retryBaseDelayMs` | 800 | Base for exponential backoff |
+| `concurrency` | 3 | Parallel requests, 1 to 64 |
+| `delayMs` | 500 | Minimum delay between requests to a host |
+| `respectRobots` | true | Honor robots.txt and Crawl-delay |
+| `maxPages` | 40 | Crawl page limit |
+| `maxDepth` | 2 | Crawl depth limit |
+| `maxBodyBytes` | 8388608 | Response size limit |
+| `sameOrigin` | true | Stay on the start site while crawling |
+| `include`, `exclude` | [] | Regular expression strings for crawled URLs |
+| `mode` | `auto` | `http`, `browser` or `auto` |
+| `proxy` | null | Proxy URL |
+| `browserPath` | null | Chrome or Chromium executable |
+| `sessionFile` | null | Saved login/captcha session from `zac login`, reused for cookies and user agent |
+| `headers` | {} | Extra request headers |
+| `headless` | true | Run the browser without a window |
+| `stealth` | true | Browser stealth patches |
+| `blockResources` | true | Block images, fonts and media in the browser |
+| `waitUntil` | `domcontentloaded` | `load`, `domcontentloaded`, `networkidle` or `commit` |
+| `scroll` | false | Auto-scroll in the browser |
+| `useSitemap` | true | Read sitemaps during discovery |
+| `locale` | `en-US` | Browser locale and Accept-Language |
+| `verbose` | false | Debug logging to stderr |
+
+Example `autocraw.config.json`:
+
+```json
+{
+  "mode": "auto",
+  "delayMs": 1000,
+  "concurrency": 2,
+  "headers": { "x-contact": "ops@example.com" },
+  "exclude": ["/wp-json/", "\\?replytocom="]
+}
+```
+
+## browserPath rules
+
+`~` is expanded. Surrounding quotes are removed. If the path is a directory, autocraw looks inside it for `chrome`, `google-chrome-stable`, `google-chrome`, `chromium` or `chromium-browser`. If it does not point to a file, launching fails with an `E_BROWSER` error that says why.
+
+## Environment variables
+
+| Variable | Used for |
+| --- | --- |
+| `AUTOCRAW_BROWSER_PATH` | Browser executable |
+| `AUTOCRAW_SESSION_FILE` | Session file from `zac login` |
+| `AUTOCRAW_SERVER_KEY` | Bearer token for `zac serve` |
+| `OPENAI_BASE_URL` | Override the OpenAI-compatible endpoint |
+| `ANTHROPIC_BASE_URL` | Override the Anthropic-compatible endpoint |
+| `OLLAMA_BASE_URL` | Ollama endpoint, default `http://localhost:11434` |
+| `OLLAMA_MODEL` | Default model name for the `ollama` provider |
+| `AUTOCRAW_PROXY` | Proxy URL |
+| `AUTOCRAW_CACHE_DIR` | Cache folder, default `~/.cache/autocraw` |
+| `AUTOCRAW_ENV_FILE` | Env file to load instead of `.env` (CLI) |
+| `AUTOCRAW_SERVER_KEY` | Bearer token for `serve` |
+| `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic |
+| `AUTOCRAW_API_KEY` | Key for either provider, provider inferred from the prefix |
+
+The library never loads `.env` files on its own. The CLI does.
+
+---
+
+Source: docs/en/reference/report-schema.md
+
+# Report schema
+
+`discover` returns a `SiteReport`. `schemaVersion` is `1`. Fields may be added within a version; existing fields keep their meaning. A breaking change increases `schemaVersion`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `schemaVersion` | `1` | Schema version |
+| `target`, `origin` | string | Requested URL and its origin |
+| `generatedAt`, `version` | string | ISO time and autocraw version |
+| `home` | object | `url`, `status`, `title`, `via`, `seo` of the home page |
+| `techstack` | object | `technologies`, `primaryFramework`, `cms`, `renderStrategy`, `renderReasons`, `dataFormat`, `dataReasons` |
+| `ssr` | object | `detected` kinds and `payloads` with `kind`, `source`, `sizeBytes`, `keys`, `data`, `meta` |
+| `hydration` | object or null | Raw versus rendered text and link counts, `trapped`, `reasons` |
+| `template` | object or null | `id`, `name`, `vendor`, `confidence`, `contentType` |
+| `robots` | object | `found`, `sitemaps`, `crawlDelay`, `disallowAll`, `disallowed`, `allowed` |
+| `sitemap` | object | `found`, `sources`, `totalUrls`, `sample`, `groups` |
+| `urlGroups` | array | `pattern`, `kind`, `count`, `examples` |
+| `patterns` | array | Template documented URL patterns |
+| `listing` | array | Items found on the home page |
+| `pagination` | object or null | `scheme`, `pattern`, `current`, `last`, `next`, `verified`, `notes` |
+| `search` | object or null | `method`, `action`, `param`, `sampleUrl`, `resultCount`, `verified`, `liveSearch`, `notes` |
+| `filters` | object or null | `action`, `method`, `controls` with options |
+| `detail` | object or null | Sample detail page: `url` and `info` |
+| `watch` | object or null | Sample episode page: mirrors, default player, downloads, navigation, media |
+| `read` | object or null | Sample reader page: image pages, navigation |
+| `media` | object or null | `sources`, `encryption`, `hosters` |
+| `network` | array | Observed XHR and fetch endpoints, only after a browser render |
+| `crawl` | object or null | Pages, skipped URLs, errors, stats |
+| `caveats` | string[] | Things that could not be verified |
+| `timings` | object | Milliseconds per step |
+
+`renderStrategy`: `ssr`, `ssg`, `csr`, `rsc`, `hybrid`, `unknown`.
+`dataFormat`: `html-only`, `json-hydration`, `rsc-flight`, `graphql`, `rest-json`, `mixed`, `unknown`.
+Page kinds: `home`, `listing`, `search`, `detail`, `watch`, `read`, `taxonomy`, `static`, `feed`, `asset`, `other`.
+
+Treat `null` as "not probed or not applicable", and read `caveats` to learn why.
+
+---
+
+Source: docs/en/reference/errors.md
+
+# Errors and exit codes
+
+Errors raised on purpose are `AutocrawError` with `code`, `message` and `details`.
+
+| Code | Meaning | CLI exit | Server HTTP |
+| --- | --- | --- | --- |
+| `E_CONFIG` | Invalid configuration or missing credentials | 2 | 400 |
+| `E_INPUT` | Invalid input such as a bad URL, selector, action or schema | 2 | 400 |
+| `E_BLOCKED` | Blocked by anti-bot protection | 3 | 502 |
+| `E_ROBOTS` | Disallowed by robots.txt | 3 | 403 |
+| `E_HTTP` | Unexpected HTTP result or too many redirects | 4 | 502 |
+| `E_NETWORK` | Network failure | 4 | 502 |
+| `E_TIMEOUT` | Timed out | 4 | 504 |
+| `E_BROWSER` | Browser missing, failed to start, or an action failed | 5 | 502 |
+| `E_CAPTCHA` | A captcha could not be solved | 5 | 502 |
+| `E_AI` | AI provider error | 6 | 502 |
+| `E_AI_AUTH` | Key rejected or no quota | 6 | 502 |
+| `E_AI_RATE_LIMIT` | Provider rate limit after retries | 6 | 429 |
+| `E_AI_CONTEXT` | Prompt or output exceeds the model limit, or the report does not fit the token budget | 6 | 422 |
+| `E_IO` | File could not be read or written | 7 | 500 |
+| `E_PARSE` | Content or JSON could not be parsed | 7 | 422 |
+
+`E_BLOCKED` and `E_BROWSER` messages include a suggested next step. Common causes and fixes are in [troubleshooting](../troubleshooting.md).
+
+---
+
+Source: docs/en/troubleshooting.md
+
+# Troubleshooting
+
+Start with `zac doctor`. It checks Node.js, Playwright, the browser, API keys and network access.
+
+## Build and install
+
+**`tsup: not found` after cloning**
+Run `npm install` first. The build tools are dev dependencies.
+
+**`npm run build` fails in the declaration step with a `ReadableStream` type error**
+Fixed in the current source. Update to the latest code. Do not remove `DOM` from `tsconfig.json` `lib`; the DOM extractors need its types.
+
+## Browser
+
+**`Chromium browser: not installed`**
+Run `npx playwright install chromium`, or set `AUTOCRAW_BROWSER_PATH` to an existing Chrome or Chromium.
+
+**`Invalid browser path: ... is a directory without a Chrome/Chromium binary inside`**
+The path points to a folder that has no browser binary. Point to the binary itself, for example `/opt/google/chrome/chrome`.
+
+**`Invalid browser path: ... does not exist`**
+Check the path. `~` is expanded in `.env` and flags, but a typo is still a typo.
+
+**The browser starts but pages fail to load, or it crashes on launch**
+Missing system libraries are the usual cause on minimal Linux images and containers. The error message includes the first line from the browser. Install the libraries it names, or use `npx playwright install-deps chromium`. autocraw already passes `--no-sandbox`.
+
+## Fetching
+
+**`E_BLOCKED` (exit code 3)**
+The site served a challenge or forbade the request. Try `--mode browser`, `--headed`, a slower `--delay`, a permitted proxy, or reconsider whether you should crawl that site. See [browser and anti-bot](guides/browser-and-anti-bot.md).
+
+**`E_ROBOTS` (exit code 3)**
+robots.txt disallows the URL. Respect it unless you own the site.
+
+**`E_TIMEOUT`**
+Raise `--timeout`, or try `--mode browser` for slow pages.
+
+**Markdown is empty or very short**
+The page is probably rendered by JavaScript. Run `zac inspect <url> --compare`, then use `--mode browser` and `--wait <selector>`. Also try `--full` in case main-content detection removed the content.
+
+**Markdown contains menus and footers**
+That is expected with `--full`. Without it, use `--include-tag` to pick the content element.
+
+## CLI usage
+
+**`option '-f, --format <formats>' argument ... is invalid`**
+Formats are `markdown`, `html`, `text`, `links`, `images`, `metadata`, `screenshot`. Combine them with commas: `-f markdown,links`.
+
+**`Refusing to listen on 0.0.0.0 without authentication`**
+Pass `--key` or set `AUTOCRAW_SERVER_KEY` when binding beyond localhost.
+
+## Discovery
+
+**Sitemap shows 0 URLs although a sitemap index was found**
+The child sitemap files could not be read. The report's caveats list each failing file and why (for example HTTP 403 or blocked). Run `zac map <site> --sitemap-mode only` for the same diagnostics.
+
+**Template is `generic`**
+No template reached confidence 0.5. Force one with `--template wordpress-animestream` or `--template wordpress-madara`, or [write a template](guides/templates.md).
+
+**Pagination detected but not verified**
+Page 2 could not be fetched, or returned the same items. Check the caveats and try `zac probe pagination <site>`.
+
+**Search could not be verified**
+The sample query returned no recognizable result cards. The site may use a custom search page or a live-search API only.
+
+## AI
+
+**`E_AI_AUTH`**
+The key was rejected, or the account has no quota. Check the key, and that it can use the chosen model.
+
+**`E_AI_CONTEXT`**
+The report is too large for the model's budget. Lower `--crawl-pages`, run with `--no-probes`, or raise `--ai-max-input` if the model allows.
+
+**The AI document looks cut off**
+The model reached the output limit. Raise `--ai-max-output`.
+
+**Results are not changing between runs**
+They are cached by content. Use `--no-cache`, or change the prompt-affecting options.
+
+## Still stuck
+
+Run the command with `-v` and open an issue with the output, your Node.js version and the command line. Remove API keys and private URLs first.
+
+---
+
+Source: docs/en/limitations.md
+
+# Limitations
+
+Know these before you depend on autocraw.
+
+## Not included
+
+- No hosted service, dashboard or accounts. autocraw runs on your machine.
+- No web search endpoint. `map --search` filters URLs of one site; it does not search the web.
+- No asynchronous crawl jobs, queues, webhooks or persistence. The REST API is synchronous and capped for that reason.
+- No change tracking or scheduled monitoring.
+- Captcha solving is opt-in and only works inside the browser for the types listed in [browser and anti-bot](guides/browser-and-anti-bot.md). It does not cover every captcha, and it does not use paid solving services or external models.
+- No PDF, Office or image OCR content extraction. Non-HTML responses are not converted to Markdown.
+- Chromium family browsers only.
+
+## Accuracy
+
+- Technology detection is signature based. A site can hide or fake signatures. Confidence values are heuristic scores, not probabilities.
+- Rendering strategy and hydration trap detection compare what was fetched with what was rendered. Sites that vary content by cookie, region or user agent can produce different results from run to run.
+- Templates are tied to the markup of the versions they were checked against (AnimeStream 2.2.6, Madara 2.2.5.2). Customized themes and plugins can break selectors. The report says when it could not verify something.
+- URL pattern grouping uses simple rules. Similar looking slugs can be grouped together and unusual ones apart.
+- Markdown conversion favors readable main content and can drop or reorder unusual layouts. Use `--full` or `--include-tag` when it guesses wrong.
+- AI output can be wrong or inconsistent. Prefer default mode when you need reproducible output, and verify AI documents against the JSON.
+
+## Security
+
+- The server blocks private addresses by resolving hostnames before connecting. DNS rebinding between the check and the connection is possible. Run the server where internal services are not reachable.
+- Prompt injection from page content is mitigated by instructions, not eliminated.
+- Browser stealth patches are best effort.
+
+## Performance
+
+- Each fetched page is parsed with jsdom for most operations, which is far heavier than a streaming parser. Crawls without SEO analysis and `map` use the faster `rusteerio` parser when available.
+- The browser is started lazily and shared per instance; very large crawls should be split into several runs.
+
+## Platform
+
+- Node.js 22 or newer.
+- The `rusteerio` parser ships native binaries. If one is not available for your platform, autocraw falls back to jsdom automatically.
+
+---
+
+Source: docs/en/development.md
+
+# Development
+
+## Setup
+
+```sh
+git clone https://github.com/zhadevv/autocraw.git
+cd autocraw
+npm install
+npm run typecheck
+npm test
+npm run build
+node dist/cli.js doctor
+```
+
+## Scripts
+
+| Script | Purpose |
+| --- | --- |
+| `npm run build` | Bundle with tsup: ESM and CJS library, ESM CLI with a shebang, declarations |
+| `npm run dev` | Rebuild on change |
+| `npm run typecheck` | `tsc --noEmit` over `src` and `tests` |
+| `npm test` | Vitest, unit tests |
+| `npm run docs:llms` | Rebuild `docs/llms-full.txt` from the English docs |
+
+## Layout
+
+```
+src/
+  cli/          commander commands, option parsing, spinner and tables
+  core/         session, crawler, discovery, scrape, map, batch, extract, inspect
+  browser/      Playwright session, actions, anti-block, hydration analysis
+  http/         undici client, RSC fetcher, request replay
+  compliance/   robots.txt, sitemaps, rate limiter
+  techstack/    signatures, detector, render strategy and data format
+  ssr/          Next.js, Nuxt, Remix, SvelteKit, Astro, Qwik payload parsers
+  templates/    base, generic, registry, wordpress/animestream, wordpress/madara
+  extractors/   links, images, SEO, text and Markdown, fast parser
+  probes/       pagination, search, filter, detail, watch
+  media/        detector, hoster registry, encryption and packer helpers
+  classify/     URL taxonomy
+  markdown/     default generator and AI generator, providers, cache
+  report/       JSON, CSV, export
+  server/       REST API and SSRF guard
+  config/       defaults and schema
+  utils/        errors, URLs, DOM helpers, files, logging
+tests/unit/     fixtures are inline HTML strings
+```
+
+## Conventions
+
+- TypeScript strict mode, ESM, no default exports for modules with several exports.
+- Source files contain no comments by project convention. Put explanations in names, small functions, tests and these docs.
+- Validate at the edges with zod or explicit checks and throw `AutocrawError` with a specific code.
+- Never swallow errors silently unless the failure is genuinely optional, and then record it as a caveat or debug log.
+- Keep detectors conservative. Prefer reporting "not detected" to guessing.
+- New dependencies need a reason; this is a published CLI.
+
+## Tests
+
+Tests live in `tests/unit` and use small inline HTML fixtures modeled on real markup. When you add or fix a template selector, add a fixture that fails without the change. Tests must not hit the network. The AI provider tests point at an unreachable address to test fallback behavior.
+
+## Adding a template
+
+See [templates](guides/templates.md). Register it in `src/templates/registry.ts` if it should be built in, with detection tests and selector notes in the template guide.
+
+## Releasing
+
+1. Update `CHANGELOG.md` and the version in `package.json` and `src/version.ts`.
+2. `npm run typecheck && npm test && npm run build`.
+3. Check the package contents with `npm pack --dry-run`.
+4. Commit, then tag `vX.Y.Z` and push the tag.
+
+The `release` workflow runs the checks and publishes with provenance. It needs an `NPM_TOKEN` repository secret with publish rights for the `@zhadev` scope. The package is published publicly (`publishConfig.access`).
+
+Commit `package-lock.json`; CI uses `npm ci`.
+
+## License
+
+GPL-3.0-only. By contributing you agree your contribution is licensed under the same terms.
